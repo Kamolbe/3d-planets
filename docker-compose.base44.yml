@@ -1,0 +1,54 @@
+# Base44 sandbox/dev environment for the "3d-planets" React + Vite app.
+#
+# This is a static frontend (React 19 + Vite 8 + three.js): no database, no
+# API service and no external credentials are required.
+#
+# It runs the app FROM THE CLONED SOURCE with Vite's dev server (live reload),
+# so code edits are reflected without rebuilding an image.
+#
+# Note: this file is for the sandbox/development only and is intentionally
+# separate from any deployment configuration.
+
+services:
+  web:
+    image: node:22
+    working_dir: /app
+    # Install from the lockfile at startup (deps live in a named volume), then
+    # run the Vite dev server bound to 0.0.0.0 so the preview proxy can reach it.
+    command: ["sh", "-ec", "npm ci --no-audit --no-fund && exec npm run dev -- --host 0.0.0.0 --port 5173"]
+    volumes:
+      - ./:/app
+      - web_node_modules:/app/node_modules
+    ports:
+      # Host port 3000 is the public preview entry point.
+      - "3000:5173"
+    environment:
+      # Passed through from the sandbox when set; harmless when unset.
+      - BASE44_PREVIEW_MODE
+      # Vite >= 6.1 reads this and appends it to `server.allowedHosts`, which is
+      # what lets the preview proxy's hostname reach the dev server.
+      - __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS
+      # Bind mounts often don't emit inotify events into the container; poll
+      # instead so HMR keeps working.
+      - CHOKIDAR_USEPOLLING=true
+    healthcheck:
+      # The dev server must actually serve the app (not just have a live PID).
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:5173/')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      # npm ci + first Vite compile can take a while on a cold volume.
+      start_period: 120s
+    restart: on-failure
+    labels:
+      base44.project: "3d-planets"
+      base44.kind: "web"
+      base44.port: "3000"
+
+volumes:
+  web_node_modules:
